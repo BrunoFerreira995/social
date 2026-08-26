@@ -57,6 +57,20 @@
       "when": 1787765284642,
       "tag": "0007_parched_chameleon",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1787767729374,
+      "tag": "0008_futuristic_obadiah_stane",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1787767835784,
+      "tag": "0009_fixed_hairball",
+      "breakpoints": true
     }
   ]
 }

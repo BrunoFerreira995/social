@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test'
-import { app } from './index'
+import { app } from './app'
 
 test('health endpoint is public', async () => {
   const response = await app.handle(new Request('http://localhost/health'))

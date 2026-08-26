@@ -1,0 +1,32 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: social
+          POSTGRES_PASSWORD: social
+          POSTGRES_DB: social
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd="pg_isready -U social -d social"
+          --health-interval=5s --health-timeout=5s --health-retries=20
+    env:
+      DATABASE_URL: postgresql://social:social@localhost:5432/social
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install --frozen-lockfile
+      - run: bun run db:migrate
+      - run: bun run lint
+      - run: bun run test
+      - run: bun test apps/api/src/database.integration.test.ts

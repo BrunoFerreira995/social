@@ -64,6 +64,19 @@ Para desenvolvimento, copie `.env.development.example` para `.env`. Em produçã
 
 ## Próximos passos do MVP
 
+### Hardening implementado
+
+- [x] Schemas TypeBox reutilizáveis para corpos, parâmetros e queries; casts de entrada removidos da API.
+- [x] Validação de UUIDs, URLs, MIME, limites, enums e cursores.
+- [x] Erros com formato `{ code, message, details, requestId }`, sem stack trace para o cliente.
+- [x] Logs JSON com requestId, status e duração.
+- [x] Transações no cadastro, criação de conversas, posts e moderação.
+- [x] Constraints PostgreSQL para papéis, follows, blocks, denúncias, mídias e notificações.
+- [x] Teste de rollback com PostgreSQL e execução de migrações no CI.
+- [x] WebSocket autenticado no upgrade e autorizado por conversa.
+
+O teste de integração PostgreSQL roda com `bun run test:integration` quando `DATABASE_URL` estiver definido. O CI inicia PostgreSQL, executa as migrações reais e então roda a suíte.
+
 1. Modelar usuários, perfis e sessões no pacote de banco.
 2. Implementar autenticação com cookie HttpOnly.
 3. Criar endpoints de perfil, seguir e feed cronológico.

@@ -1,5 +1,6 @@
 import {
   boolean,
+  check,
   index,
   integer,
   jsonb,
@@ -11,6 +12,7 @@ import {
   uuid,
   varchar,
 } from 'drizzle-orm/pg-core'
+import { sql } from 'drizzle-orm'
 
 const timestamps = {
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
@@ -28,7 +30,11 @@ export const users = pgTable(
     role: varchar('role', { length: 20 }).default('user').notNull(),
     ...timestamps,
   },
-  (t) => [uniqueIndex('users_email_unique').on(t.email), index('users_deleted_at_idx').on(t.deletedAt)],
+  (t) => [
+    uniqueIndex('users_email_unique').on(t.email),
+    index('users_deleted_at_idx').on(t.deletedAt),
+    check('users_role_check', sql`${t.role} in ('user', 'admin')`),
+  ],
 )
 export const profiles = pgTable(
   'profiles',
@@ -111,7 +117,17 @@ export const postMedia = pgTable(
     position: integer('position').default(0).notNull(),
     ...timestamps,
   },
-  (t) => [index('post_media_post_idx').on(t.postId, t.position)],
+  (t) => [
+    index('post_media_post_idx').on(t.postId, t.position),
+    check(
+      'post_media_type_check',
+      sql`${t.mimeType} in ('image/jpeg', 'image/png', 'image/webp', 'image/gif', 'video/mp4', 'video/webm', 'video/quicktime')`,
+    ),
+    check(
+      'post_media_dimensions_check',
+      sql`${t.width} is null or ${t.height} is null or (${t.width} > 0 and ${t.height} > 0)`,
+    ),
+  ],
 )
 export const postMentions = pgTable(
   'post_mentions',
@@ -244,7 +260,10 @@ export const comments = pgTable(
     body: text('body').notNull(),
     ...timestamps,
   },
-  (t) => [index('comments_post_idx').on(t.postId, t.createdAt)],
+  (t) => [
+    index('comments_post_idx').on(t.postId, t.createdAt),
+    check('comments_parent_not_self', sql`${t.parentId} is null or ${t.parentId} <> ${t.id}`),
+  ],
 )
 export const likes = pgTable(
   'likes',
@@ -271,7 +290,12 @@ export const follows = pgTable(
     status: varchar('status', { length: 20 }).default('accepted').notNull(),
     createdAt: timestamps.createdAt,
   },
-  (t) => [primaryKey({ columns: [t.followerId, t.followingId] }), index('follows_following_idx').on(t.followingId)],
+  (t) => [
+    primaryKey({ columns: [t.followerId, t.followingId] }),
+    index('follows_following_idx').on(t.followingId),
+    check('follows_no_self_follow', sql`${t.followerId} <> ${t.followingId}`),
+    check('follows_status_check', sql`${t.status} in ('pending', 'accepted')`),
+  ],
 )
 export const savedPosts = pgTable(
   'saved_posts',
@@ -302,6 +326,7 @@ export const notifications = pgTable(
   (t) => [
     index('notifications_recipient_idx').on(t.recipientId, t.createdAt),
     index('notifications_unread_idx').on(t.recipientId, t.readAt),
+    check('notifications_type_check', sql`${t.type} in ('like', 'comment', 'follow', 'message')`),
   ],
 )
 export const reports = pgTable(
@@ -317,7 +342,12 @@ export const reports = pgTable(
     status: varchar('status', { length: 20 }).default('open').notNull(),
     ...timestamps,
   },
-  (t) => [index('reports_status_idx').on(t.status, t.createdAt)],
+  (t) => [
+    index('reports_status_idx').on(t.status, t.createdAt),
+    check('reports_status_check', sql`${t.status} in ('open', 'resolved', 'rejected')`),
+    check('reports_exactly_one_target', sql`num_nonnulls(${t.targetUserId}, ${t.targetPostId}) = 1`),
+    check('reports_no_self_target', sql`${t.reporterId} <> coalesce(${t.targetUserId}, ${t.reporterId})`),
+  ],
 )
 export const blocks = pgTable(
   'blocks',
@@ -330,7 +360,11 @@ export const blocks = pgTable(
       .references(() => users.id, { onDelete: 'cascade' }),
     createdAt: timestamps.createdAt,
   },
-  (t) => [primaryKey({ columns: [t.blockerId, t.blockedId] }), index('blocks_blocked_idx').on(t.blockedId)],
+  (t) => [
+    primaryKey({ columns: [t.blockerId, t.blockedId] }),
+    index('blocks_blocked_idx').on(t.blockedId),
+    check('blocks_no_self_block', sql`${t.blockerId} <> ${t.blockedId}`),
+  ],
 )
 export const auditLogs = pgTable(
   'audit_logs',
