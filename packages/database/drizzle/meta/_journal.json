@@ -71,6 +71,27 @@
       "when": 1787767835784,
       "tag": "0009_fixed_hairball",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1787768494141,
+      "tag": "0010_old_puppet_master",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1787769000000,
+      "tag": "0011_fix_report_target_check",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1787769554660,
+      "tag": "0012_parallel_wilson_fisk",
+      "breakpoints": true
     }
   ]
 }

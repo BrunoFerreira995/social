@@ -18,14 +18,46 @@ type UploadDependencies = {
   }
 }
 
+function uploadError(request: Request, status: number) {
+  const code =
+    status === 401
+      ? 'UNAUTHORIZED'
+      : status === 400
+        ? 'VALIDATION_ERROR'
+        : status === 429
+          ? 'RATE_LIMITED'
+          : status === 503
+            ? 'UNAVAILABLE'
+            : status === 404
+              ? 'NOT_FOUND'
+              : 'REQUEST_ERROR'
+  const message =
+    status === 401
+      ? 'Authentication required'
+      : status === 400
+        ? 'Invalid request'
+        : status === 429
+          ? 'Too many requests'
+          : status === 503
+            ? 'Service unavailable'
+            : status === 404
+              ? 'Resource not found'
+              : 'Request failed'
+  const requestId = request.headers.get('x-request-id') ?? crypto.randomUUID()
+  return new Response(JSON.stringify({ code, message, details: [], requestId }), {
+    status,
+    headers: { 'content-type': 'application/json', 'x-request-id': requestId },
+  })
+}
+
 export function createUploadRoutes(deps: UploadDependencies) {
   return new Elysia()
     .get(
       '/uploads/:filename',
-      ({ params }) => {
-        if (!/^[a-zA-Z0-9_.-]+$/.test(params.filename)) return new Response('Invalid filename', { status: 400 })
+      ({ params, request }) => {
+        if (!/^[a-zA-Z0-9_.-]+$/.test(params.filename)) return uploadError(request, 400)
         const file = Bun.file(join(deps.mediaDirectory, params.filename))
-        return file.size ? new Response(file) : new Response('File not found', { status: 404 })
+        return file.size ? new Response(file) : uploadError(request, 404)
       },
       { params: uploadParams },
     )
@@ -33,7 +65,7 @@ export function createUploadRoutes(deps: UploadDependencies) {
       '/api/v1/uploads/presign',
       async ({ body, request }) => {
         const user = await deps.authenticatedUser(request)
-        if (!user) return new Response('Unauthorized', { status: 401 })
+        if (!user) return uploadError(request, 401)
         const accepted = [
           'image/jpeg',
           'image/png',
@@ -44,8 +76,7 @@ export function createUploadRoutes(deps: UploadDependencies) {
           'video/quicktime',
         ]
         const maxSize = body.contentType.startsWith('video/') ? 100 * 1024 * 1024 : 10 * 1024 * 1024
-        if (!accepted.includes(body.contentType) || body.size > maxSize)
-          return new Response('Invalid upload metadata', { status: 400 })
+        if (!accepted.includes(body.contentType) || body.size > maxSize) return uploadError(request, 400)
         const extension =
           body.filename
             .split('.')
@@ -61,17 +92,17 @@ export function createUploadRoutes(deps: UploadDependencies) {
             expiresIn: 900,
           }
         } catch {
-          return new Response('Object storage is not configured', { status: 503 })
+          return uploadError(request, 503)
         }
       },
       { body: uploadPresignBody },
     )
     .post('/api/v1/uploads', async ({ request }) => {
       const user = await deps.authenticatedUser(request)
-      if (!user) return new Response('Unauthorized', { status: 401 })
-      if (!(await deps.rateLimit(`upload:${user.id}`, 30))) return new Response('Too many uploads', { status: 429 })
+      if (!user) return uploadError(request, 401)
+      if (!(await deps.rateLimit(`upload:${user.id}`, 30))) return uploadError(request, 429)
       const file = (await request.formData()).get('file')
-      if (!(file instanceof File)) return new Response('File is required', { status: 400 })
+      if (!(file instanceof File)) return uploadError(request, 400)
       try {
         const validation = await validateUpload(file)
         await mkdir(deps.mediaDirectory, { recursive: true })
@@ -87,7 +118,7 @@ export function createUploadRoutes(deps: UploadDependencies) {
           height: validation.metadata?.height,
         }
       } catch {
-        return new Response('Invalid upload', { status: 400 })
+        return uploadError(request, 400)
       }
     })
 }

@@ -6,6 +6,7 @@ import { and, count, desc, eq, exists, gt, ilike, inArray, isNull, lt, notExists
 import { connectRedis, db } from '@social/database'
 import { canViewContent } from './access-policy'
 import * as schema from './schemas'
+import { paginateFeedRows } from './feed-pagination'
 import {
   blocks,
   comments,
@@ -886,19 +887,23 @@ export const baseApp = new Elysia()
         .orderBy(desc(posts.createdAt), desc(posts.id))
         .limit(limit + 1)
       const hasMore = pagePosts.length > limit
-      const visiblePosts = pagePosts.slice(0, limit).map(({ post }) => post)
-      const mediaRows = visiblePosts.length
+      const pageRows = pagePosts.slice(0, limit).map(({ post }) => post)
+      const mediaRows = pageRows.length
         ? await db
             .select()
             .from(postMedia)
             .where(
               inArray(
                 postMedia.postId,
-                visiblePosts.map((post) => post.id),
+                pageRows.map((post) => post.id),
               ),
             )
         : []
-      const items = visiblePosts.map((post) => ({ post, media: mediaRows.filter((media) => media.postId === post.id) }))
+      const page = paginateFeedRows(
+        pagePosts.map(({ post }) => ({ post, media: mediaRows.filter((media) => media.postId === post.id) })),
+        limit,
+      )
+      const items = page.items
       const last = items.at(-1)
       return {
         items,
@@ -1057,19 +1062,15 @@ export const baseApp = new Elysia()
     },
     { body: schema.userIdBody },
   )
-  .get(
-    '/api/v1/conversations',
-    async ({ request }) => {
-      const user = await authenticatedUser(request)
-      if (!user) return new Response('Unauthorized', { status: 401 })
-      const memberships = await db
-        .select({ conversationId: conversationMembers.conversationId, lastReadAt: conversationMembers.lastReadAt })
-        .from(conversationMembers)
-        .where(eq(conversationMembers.userId, user.id))
-      return { conversations: memberships }
-    },
-    { params: schema.conversationParams },
-  )
+  .get('/api/v1/conversations', async ({ request }) => {
+    const user = await authenticatedUser(request)
+    if (!user) return new Response('Unauthorized', { status: 401 })
+    const memberships = await db
+      .select({ conversationId: conversationMembers.conversationId, lastReadAt: conversationMembers.lastReadAt })
+      .from(conversationMembers)
+      .where(eq(conversationMembers.userId, user.id))
+    return { conversations: memberships }
+  })
   .get(
     '/api/v1/conversations/:conversationId/messages',
     async ({ params, request }) => {
@@ -1159,15 +1160,19 @@ export const baseApp = new Elysia()
     },
     { params: schema.notificationParams },
   )
-  .post('/api/v1/notifications/:notificationId/read', async ({ params, request }) => {
-    const user = await authenticatedUser(request)
-    if (!user) return new Response('Unauthorized', { status: 401 })
-    await db
-      .update(notifications)
-      .set({ readAt: new Date(), updatedAt: new Date() })
-      .where(and(eq(notifications.id, params.notificationId), eq(notifications.recipientId, user.id)))
-    return { read: true }
-  })
+  .post(
+    '/api/v1/notifications/:notificationId/read',
+    async ({ params, request }) => {
+      const user = await authenticatedUser(request)
+      if (!user) return new Response('Unauthorized', { status: 401 })
+      await db
+        .update(notifications)
+        .set({ readAt: new Date(), updatedAt: new Date() })
+        .where(and(eq(notifications.id, params.notificationId), eq(notifications.recipientId, user.id)))
+      return { read: true }
+    },
+    { params: schema.notificationParams },
+  )
   .get('/api/v1/notification-preferences', async ({ request }) => {
     const user = await authenticatedUser(request)
     if (!user) return new Response('Unauthorized', { status: 401 })

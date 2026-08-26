@@ -1,0 +1,3 @@
+ALTER TABLE "post_media" DROP CONSTRAINT "post_media_dimensions_check";--> statement-breakpoint
+ALTER TABLE "comments" ADD CONSTRAINT "comments_parent_id_comments_id_fk" FOREIGN KEY ("parent_id") REFERENCES "public"."comments"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "post_media" ADD CONSTRAINT "post_media_dimensions_check" CHECK (("post_media"."width" is null or "post_media"."width" > 0) and ("post_media"."height" is null or "post_media"."height" > 0));

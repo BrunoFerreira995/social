@@ -3,5 +3,5 @@ ALTER TABLE "follows" ADD CONSTRAINT "follows_no_self_follow" CHECK ("follows"."
 ALTER TABLE "follows" ADD CONSTRAINT "follows_status_check" CHECK ("follows"."status" in ('pending', 'accepted'));--> statement-breakpoint
 ALTER TABLE "reports" ADD CONSTRAINT "reports_status_check" CHECK ("reports"."status" in ('open', 'resolved', 'rejected'));--> statement-breakpoint
 ALTER TABLE "reports" ADD CONSTRAINT "reports_exactly_one_target" CHECK (num_nonnulls("reports"."target_user_id", "reports"."target_post_id") = 1);--> statement-breakpoint
-ALTER TABLE "reports" ADD CONSTRAINT "reports_no_self_target" CHECK ("reports"."reporter_id" <> coalesce("reports"."target_user_id", "reports"."reporter_id"));--> statement-breakpoint
+ALTER TABLE "reports" ADD CONSTRAINT "reports_no_self_target" CHECK ("reports"."target_user_id" IS NULL OR "reports"."reporter_id" <> "reports"."target_user_id");--> statement-breakpoint
 ALTER TABLE "users" ADD CONSTRAINT "users_role_check" CHECK ("users"."role" in ('user', 'admin'));

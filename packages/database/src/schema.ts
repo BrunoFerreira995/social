@@ -125,7 +125,7 @@ export const postMedia = pgTable(
     ),
     check(
       'post_media_dimensions_check',
-      sql`${t.width} is null or ${t.height} is null or (${t.width} > 0 and ${t.height} > 0)`,
+      sql`(${t.width} is null or ${t.width} > 0) and (${t.height} is null or ${t.height} > 0)`,
     ),
   ],
 )
@@ -256,7 +256,9 @@ export const comments = pgTable(
     authorId: uuid('author_id')
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
-    parentId: uuid('parent_id'),
+    parentId: uuid('parent_id').references((): import('drizzle-orm/pg-core').AnyPgColumn => comments.id, {
+      onDelete: 'cascade',
+    }),
     body: text('body').notNull(),
     ...timestamps,
   },
@@ -346,7 +348,7 @@ export const reports = pgTable(
     index('reports_status_idx').on(t.status, t.createdAt),
     check('reports_status_check', sql`${t.status} in ('open', 'resolved', 'rejected')`),
     check('reports_exactly_one_target', sql`num_nonnulls(${t.targetUserId}, ${t.targetPostId}) = 1`),
-    check('reports_no_self_target', sql`${t.reporterId} <> coalesce(${t.targetUserId}, ${t.reporterId})`),
+    check('reports_no_self_target', sql`${t.targetUserId} is null or ${t.reporterId} <> ${t.targetUserId}`),
   ],
 )
 export const blocks = pgTable(

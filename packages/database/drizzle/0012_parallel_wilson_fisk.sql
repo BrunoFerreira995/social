@@ -1,0 +1,2 @@
+ALTER TABLE "reports" DROP CONSTRAINT "reports_no_self_target";--> statement-breakpoint
+ALTER TABLE "reports" ADD CONSTRAINT "reports_no_self_target" CHECK ("reports"."target_user_id" is null or "reports"."reporter_id" <> "reports"."target_user_id");

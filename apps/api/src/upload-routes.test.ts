@@ -25,7 +25,7 @@ test('upload presign rejects anonymous users over HTTP', async () => {
     }),
   )
   expect(response.status).toBe(401)
-  expect(await response.text()).toBe('Unauthorized')
+  expect(await response.json()).toMatchObject({ code: 'UNAUTHORIZED', message: 'Authentication required', details: [] })
 })
 
 test('authenticated users receive a presigned upload URL over HTTP', async () => {
