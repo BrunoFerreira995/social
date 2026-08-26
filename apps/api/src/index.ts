@@ -2,7 +2,7 @@ import cors from '@elysiajs/cors'
 import { Elysia, t } from 'elysia'
 import { createHash, randomBytes } from 'node:crypto'
 import webpush from 'web-push'
-import { and, count, desc, eq, exists, gt, ilike, inArray, isNull, lt, notExists, or } from 'drizzle-orm'
+import { and, asc, count, desc, eq, exists, gt, ilike, inArray, isNull, lt, notExists, or } from 'drizzle-orm'
 import { connectRedis, db } from '@social/database'
 import { canViewContent } from './access-policy'
 import * as schema from './schemas'
@@ -886,7 +886,6 @@ export const baseApp = new Elysia()
         .where(and(...conditions))
         .orderBy(desc(posts.createdAt), desc(posts.id))
         .limit(limit + 1)
-      const hasMore = pagePosts.length > limit
       const pageRows = pagePosts.slice(0, limit).map(({ post }) => post)
       const mediaRows = pageRows.length
         ? await db
@@ -898,6 +897,7 @@ export const baseApp = new Elysia()
                 pageRows.map((post) => post.id),
               ),
             )
+            .orderBy(asc(postMedia.postId), asc(postMedia.position))
         : []
       const page = paginateFeedRows(
         pagePosts.map(({ post }) => ({ post, media: mediaRows.filter((media) => media.postId === post.id) })),
@@ -908,10 +908,10 @@ export const baseApp = new Elysia()
       return {
         items,
         nextCursor:
-          hasMore && last
+          page.hasMore && last
             ? Buffer.from(`${last.post.createdAt.toISOString()}|${last.post.id}`).toString('base64url')
             : null,
-        hasMore,
+        hasMore: page.hasMore,
       }
     },
     { query: schema.feedQuery },

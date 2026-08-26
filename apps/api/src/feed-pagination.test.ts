@@ -3,14 +3,20 @@ import { paginateFeedRows } from './feed-pagination'
 
 test('feed preserves media arrays without nesting', () => {
   const rows = [
-    { post: { id: 'carousel' }, media: [{ mimeType: 'image/webp' }, { mimeType: 'image/webp' }] },
+    {
+      post: { id: 'carousel' },
+      media: [
+        { position: 0, url: '/first.webp', mimeType: 'image/webp' },
+        { position: 1, url: '/second.webp', mimeType: 'image/webp' },
+      ],
+    },
     { post: { id: 'second' }, media: [{ mimeType: 'video/mp4' }] },
   ]
   const page = paginateFeedRows(rows, 2)
   expect(page.items).toHaveLength(2)
   expect(page.items[0].media).toEqual([
-    expect.objectContaining({ mimeType: 'image/webp' }),
-    expect.objectContaining({ mimeType: 'image/webp' }),
+    expect.objectContaining({ position: 0, url: '/first.webp' }),
+    expect.objectContaining({ position: 1, url: '/second.webp' }),
   ])
   expect(page.items[1].post.id).toBe('second')
 })

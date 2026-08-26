@@ -77,6 +77,8 @@ Para desenvolvimento, copie `.env.development.example` para `.env`. Em produçã
 
 O teste de integração PostgreSQL roda com `bun run test:integration` quando `DATABASE_URL` estiver definido. O CI inicia PostgreSQL, executa as migrações reais e então roda a suíte.
 
+As migrações `0011` e `0012` mantêm correções redundantes da constraint de denúncias para preservar compatibilidade com ambientes que possam ter aplicado versões anteriores. Não remova nem renumere essas migrações sem confirmar o histórico de execução dos bancos compartilhados.
+
 1. Modelar usuários, perfis e sessões no pacote de banco.
 2. Implementar autenticação com cookie HttpOnly.
 3. Criar endpoints de perfil, seguir e feed cronológico.

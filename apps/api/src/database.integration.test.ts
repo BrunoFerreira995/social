@@ -99,13 +99,11 @@ describe.skipIf(!enabled)('PostgreSQL transaction integration', () => {
       .insert(posts)
       .values({ authorId: author.id, createdAt: new Date(Date.now() - 60_000) })
       .returning({ id: posts.id })
-    await db
-      .insert(sessions)
-      .values({
-        userId: author.id,
-        tokenHash: createHash('sha256').update(token).digest('hex'),
-        expiresAt: new Date(Date.now() + 60_000),
-      })
+    await db.insert(sessions).values({
+      userId: author.id,
+      tokenHash: createHash('sha256').update(token).digest('hex'),
+      expiresAt: new Date(Date.now() + 60_000),
+    })
     try {
       const firstResponse = await app.handle(
         new Request('http://localhost/api/v1/feed?limit=1', { headers: { cookie: `social_session=${token}` } }),
@@ -114,8 +112,8 @@ describe.skipIf(!enabled)('PostgreSQL transaction integration', () => {
       const firstBody = await firstResponse.json()
       const carousel = firstBody.items.find((item: { post: { id: string } }) => item.post.id === first.id)
       expect(carousel.media).toEqual([
-        expect.objectContaining({ mimeType: 'image/webp' }),
-        expect.objectContaining({ mimeType: 'image/webp' }),
+        expect.objectContaining({ position: 0, url: 'https://cdn.test/one.webp' }),
+        expect.objectContaining({ position: 1, url: 'https://cdn.test/two.webp' }),
       ])
       expect(firstBody.nextCursor).toBeTruthy()
       const secondResponse = await app.handle(
