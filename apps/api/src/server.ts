@@ -3,13 +3,15 @@ import { and, eq } from 'drizzle-orm'
 import { db } from '@social/database'
 import { conversationMembers } from '@social/database/schema'
 
-const port = Number(process.env.API_PORT ?? 3001)
-app.listen(port)
-console.log(`API running at http://localhost:${port}`)
+// Vercel invokes the exported Elysia app as a function. A long-running
+// listener is only needed for local/server deployments.
+export default app
 
-// Vercel invokes the HTTP server as a function. The separate WebSocket
-// listener is only supported by the long-running local/server deployment.
 if (!process.env.VERCEL) {
+  const port = Number(process.env.API_PORT ?? 3001)
+  app.listen(port)
+  console.log(`API running at http://localhost:${port}`)
+
   const websocketPort = Number(process.env.WS_PORT ?? 3002)
   Bun.serve<{ userId: string }>({
   port: websocketPort,
