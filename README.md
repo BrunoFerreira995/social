@@ -304,7 +304,7 @@ Para upload direto, use `POST /api/v1/uploads/presign` com `filename`, `contentT
 - [x] Auditoria inicial de acessibilidade com Playwright.
 - [x] Teste contra spam e múltiplas requisições.
 
-Comandos de validação: `bun test`, `bun run test:e2e` e `bun run test:load`. O teste de carga aceita `LOAD_TEST_URL` e `LOAD_TEST_REQUESTS`; execute-o apenas contra ambientes controlados.
+Comandos de validação: `bun run test`, `bun run test:e2e` e `bun run test:load`. A suíte inclui matriz de privacidade/autorização e paginação de carrosséis. O teste de carga aceita `LOAD_TEST_URL` e `LOAD_TEST_REQUESTS`; execute-o apenas contra ambientes controlados.
 
 Para capturar o fluxo completo da aplicação, inicie o frontend e execute `bun run screenshots`. As imagens são salvas em `artifacts/screenshots/`. É possível alterar a origem com `SCREENSHOT_BASE_URL=https://staging.example.com bun run screenshots`.
 

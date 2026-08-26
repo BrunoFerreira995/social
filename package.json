@@ -22,7 +22,7 @@
     "test:e2e": "playwright test",
     "screenshots": "bun run scripts/capture-flow.ts",
     "test:load": "bun run tests/feed-load.ts",
-    "test": "bun test apps/api/src/api.test.ts apps/api/src/upload-validation.test.ts",
+    "test": "bun test apps/api/src/api.test.ts apps/api/src/upload-validation.test.ts apps/api/src/access-policy.test.ts apps/api/src/feed-pagination.test.ts",
     "db:up": "docker compose up -d postgres redis",
     "db:migrate": "bun --cwd packages/database db:migrate",
     "db:seed": "bun --cwd packages/database db:seed",

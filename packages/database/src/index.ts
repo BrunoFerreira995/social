@@ -8,3 +8,4 @@ export const databaseConfig = {
 export const sql = postgres(databaseConfig.url, { max: 10, prepare: false })
 export const db = drizzle(sql)
 export { schema } from './schema'
+export { connectRedis, redis } from './redis'

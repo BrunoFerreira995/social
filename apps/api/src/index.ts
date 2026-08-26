@@ -1,14 +1,15 @@
 import cors from '@elysiajs/cors'
-import { Elysia } from 'elysia'
+import { Elysia, t } from 'elysia'
 import { createHash, randomBytes } from 'node:crypto'
 import { mkdir } from 'node:fs/promises'
 import { join } from 'node:path'
 import webpush from 'web-push'
 import sharp from 'sharp'
 import { and, count, desc, eq, exists, gt, ilike, inArray, isNull, lt, notExists, or } from 'drizzle-orm'
-import { db } from '@social/database'
+import { connectRedis, db } from '@social/database'
 import { validateUpload } from './upload-validation'
 import { createUploadUrl, publicMediaUrl } from './storage'
+import { canViewContent } from './access-policy'
 import {
   blocks,
   comments,
@@ -53,7 +54,17 @@ function hashToken(token: string) {
 function newToken() {
   return randomBytes(32).toString('base64url')
 }
-function rateLimit(key: string, limit = 10) {
+async function rateLimit(key: string, limit = 10) {
+  try {
+    const redis = await connectRedis()
+    const count = await redis.incr(`ratelimit:${key}`)
+    if (count === 1) await redis.expire(`ratelimit:${key}`, 60)
+    return count <= limit
+  } catch {
+    return localRateLimit(key, limit)
+  }
+}
+function localRateLimit(key: string, limit = 10) {
   const now = Date.now()
   const current = attempts.get(key)
   if (!current || current.resetAt < now) {
@@ -131,6 +142,18 @@ async function canViewPost(postId: string, viewerId?: string) {
     .innerJoin(profiles, eq(profiles.userId, posts.authorId))
     .where(and(eq(posts.id, postId), isNull(posts.deletedAt)))
   if (!post) return false
+  if (viewerId) {
+    const [block] = await db
+      .select()
+      .from(blocks)
+      .where(
+        or(
+          and(eq(blocks.blockerId, viewerId), eq(blocks.blockedId, post.authorId)),
+          and(eq(blocks.blockerId, post.authorId), eq(blocks.blockedId, viewerId)),
+        ),
+      )
+    if (block) return false
+  }
   return canViewAuthor(post.authorId, viewerId, post.isPrivate)
 }
 async function canViewAuthor(authorId: string, viewerId: string | undefined, isPrivate?: boolean) {
@@ -141,13 +164,17 @@ async function canViewAuthor(authorId: string, viewerId: string | undefined, isP
       .where(eq(profiles.userId, authorId))
     isPrivate = profile?.isPrivate
   }
-  if (!isPrivate || authorId === viewerId) return true
-  if (!viewerId) return false
+  if (!viewerId) return !isPrivate
   const [follow] = await db
     .select()
     .from(follows)
     .where(and(eq(follows.followerId, viewerId), eq(follows.followingId, authorId), eq(follows.status, 'accepted')))
-  return Boolean(follow)
+  return canViewContent({
+    ownerId: authorId,
+    viewerId,
+    isPrivate: Boolean(isPrivate),
+    relationship: follow ? 'accepted' : null,
+  })
 }
 
 export const app = new Elysia()
@@ -204,7 +231,7 @@ export const app = new Elysia()
       .post('/uploads', async ({ request }) => {
         const user = await authenticatedUser(request)
         if (!user) return new Response('Unauthorized', { status: 401 })
-        if (!rateLimit(`upload:${user.id}`, 30)) return new Response('Too many uploads', { status: 429 })
+        if (!(await rateLimit(`upload:${user.id}`, 30))) return new Response('Too many uploads', { status: 429 })
         const form = await request.formData()
         const file = form.get('file')
         if (!(file instanceof File)) return new Response('File is required', { status: 400 })
@@ -227,49 +254,67 @@ export const app = new Elysia()
           return new Response(error instanceof Error ? error.message : 'Invalid upload', { status: 400 })
         }
       })
-      .post('/auth/register', async ({ body, request, set }) => {
-        if (!rateLimit(`register:${request.headers.get('x-forwarded-for') ?? 'unknown'}`, 5))
-          return new Response('Too many requests', { status: 429 })
-        const input = body as AuthBody
-        if (!emailPattern.test(input.email) || input.password.length < 8 || input.password.length > 128)
-          return new Response('Invalid credentials', { status: 400 })
-        const email = input.email.trim().toLowerCase()
-        const passwordHash = await Bun.password.hash(input.password, { algorithm: 'argon2id' })
-        try {
+      .post(
+        '/auth/register',
+        async ({ body, request, set }) => {
+          if (!(await rateLimit(`register:${request.headers.get('x-forwarded-for') ?? 'unknown'}`, 5)))
+            return new Response('Too many requests', { status: 429 })
+          const input = body as AuthBody
+          if (!emailPattern.test(input.email) || input.password.length < 8 || input.password.length > 128)
+            return new Response('Invalid credentials', { status: 400 })
+          const email = input.email.trim().toLowerCase()
+          const passwordHash = await Bun.password.hash(input.password, { algorithm: 'argon2id' })
+          try {
+            const [user] = await db
+              .insert(users)
+              .values({ email, passwordHash })
+              .returning({ id: users.id, email: users.email })
+            await db
+              .insert(profiles)
+              .values({ userId: user.id, username: `user_${user.id.slice(0, 8)}`, displayName: 'New User' })
+            const verificationToken = newToken()
+            await db.insert(emailVerificationTokens).values({
+              userId: user.id,
+              tokenHash: hashToken(verificationToken),
+              expiresAt: new Date(Date.now() + 86_400_000),
+            })
+            if (process.env.NODE_ENV !== 'production')
+              console.info(`Email verification token (dev): ${verificationToken}`)
+            await createSession(user.id, set)
+            return { user }
+          } catch {
+            return new Response('Email already registered', { status: 409 })
+          }
+        },
+        {
+          body: t.Object({
+            email: t.String({ format: 'email', maxLength: 320 }),
+            password: t.String({ minLength: 8, maxLength: 128 }),
+          }),
+        },
+      )
+      .post(
+        '/auth/login',
+        async ({ body, request, set }) => {
+          if (!(await rateLimit(`login:${request.headers.get('x-forwarded-for') ?? 'unknown'}`, 10)))
+            return new Response('Too many requests', { status: 429 })
+          const input = body as AuthBody
           const [user] = await db
-            .insert(users)
-            .values({ email, passwordHash })
-            .returning({ id: users.id, email: users.email })
-          await db
-            .insert(profiles)
-            .values({ userId: user.id, username: `user_${user.id.slice(0, 8)}`, displayName: 'New User' })
-          const verificationToken = newToken()
-          await db.insert(emailVerificationTokens).values({
-            userId: user.id,
-            tokenHash: hashToken(verificationToken),
-            expiresAt: new Date(Date.now() + 86_400_000),
-          })
-          if (process.env.NODE_ENV !== 'production')
-            console.info(`Email verification token (dev): ${verificationToken}`)
+            .select()
+            .from(users)
+            .where(and(eq(users.email, input.email.trim().toLowerCase()), isNull(users.deletedAt)))
+          if (!user?.passwordHash || !(await Bun.password.verify(input.password, user.passwordHash)))
+            return new Response('Invalid credentials', { status: 401 })
           await createSession(user.id, set)
-          return { user }
-        } catch {
-          return new Response('Email already registered', { status: 409 })
-        }
-      })
-      .post('/auth/login', async ({ body, request, set }) => {
-        if (!rateLimit(`login:${request.headers.get('x-forwarded-for') ?? 'unknown'}`, 10))
-          return new Response('Too many requests', { status: 429 })
-        const input = body as AuthBody
-        const [user] = await db
-          .select()
-          .from(users)
-          .where(and(eq(users.email, input.email.trim().toLowerCase()), isNull(users.deletedAt)))
-        if (!user?.passwordHash || !(await Bun.password.verify(input.password, user.passwordHash)))
-          return new Response('Invalid credentials', { status: 401 })
-        await createSession(user.id, set)
-        return { user: { id: user.id, email: user.email } }
-      })
+          return { user: { id: user.id, email: user.email } }
+        },
+        {
+          body: t.Object({
+            email: t.String({ format: 'email', maxLength: 320 }),
+            password: t.String({ minLength: 8, maxLength: 128 }),
+          }),
+        },
+      )
       .post('/auth/logout', async ({ request, set }) => {
         const token = readCookie(request)
         if (token) await db.delete(sessions).where(eq(sessions.tokenHash, hashToken(token)))
@@ -303,7 +348,7 @@ export const app = new Elysia()
         return { success: true }
       })
       .post('/auth/request-password-reset', async ({ body, request }) => {
-        if (!rateLimit(`reset:${request.headers.get('x-forwarded-for') ?? 'unknown'}`, 5))
+        if (!(await rateLimit(`reset:${request.headers.get('x-forwarded-for') ?? 'unknown'}`, 5)))
           return new Response('Too many requests', { status: 429 })
         const email = (body as { email?: string }).email?.trim().toLowerCase()
         if (email && emailPattern.test(email)) {
@@ -531,30 +576,33 @@ export const app = new Elysia()
           )
         )
           return new Response('Invalid media', { status: 400 })
-        const [post] = await db
-          .insert(posts)
-          .values({
-            authorId: user.id,
-            caption: input.caption?.trim() || null,
-            location: input.location?.trim() || null,
-          })
-          .returning()
-        await db.insert(postMedia).values(
-          media.map((item, position) => ({
-            postId: post.id,
-            url: item.url!,
-            thumbnailUrl: item.thumbnailUrl,
-            mimeType: item.mimeType!,
-            width: item.width,
-            height: item.height,
-            position,
-          })),
-        )
-        if (input.mentionUserIds?.length)
-          await db
-            .insert(postMentions)
-            .values([...new Set(input.mentionUserIds)].map((userId) => ({ postId: post.id, userId })))
-            .onConflictDoNothing()
+        const post = await db.transaction(async (tx) => {
+          const [created] = await tx
+            .insert(posts)
+            .values({
+              authorId: user.id,
+              caption: input.caption?.trim() || null,
+              location: input.location?.trim() || null,
+            })
+            .returning()
+          await tx.insert(postMedia).values(
+            media.map((item, position) => ({
+              postId: created.id,
+              url: item.url!,
+              thumbnailUrl: item.thumbnailUrl,
+              mimeType: item.mimeType!,
+              width: item.width,
+              height: item.height,
+              position,
+            })),
+          )
+          if (input.mentionUserIds?.length)
+            await tx
+              .insert(postMentions)
+              .values([...new Set(input.mentionUserIds)].map((userId) => ({ postId: created.id, userId })))
+              .onConflictDoNothing()
+          return created
+        })
         return { post: { ...post, media } }
       })
       .get('/posts/:postId', async ({ params, request }) => {
@@ -930,7 +978,7 @@ export const app = new Elysia()
   .post('/api/v1/conversations/:conversationId/messages', async ({ params, body, request }) => {
     const user = await authenticatedUser(request)
     if (!user) return new Response('Unauthorized', { status: 401 })
-    if (!rateLimit(`message:${user.id}`, 30)) return new Response('Too many messages', { status: 429 })
+    if (!(await rateLimit(`message:${user.id}`, 30))) return new Response('Too many messages', { status: 429 })
     const [member] = await db
       .select()
       .from(conversationMembers)
