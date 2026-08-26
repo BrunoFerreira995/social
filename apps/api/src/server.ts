@@ -7,8 +7,11 @@ const port = Number(process.env.API_PORT ?? 3001)
 app.listen(port)
 console.log(`API running at http://localhost:${port}`)
 
-const websocketPort = Number(process.env.WS_PORT ?? 3002)
-Bun.serve<{ userId: string }>({
+// Vercel invokes the HTTP server as a function. The separate WebSocket
+// listener is only supported by the long-running local/server deployment.
+if (!process.env.VERCEL) {
+  const websocketPort = Number(process.env.WS_PORT ?? 3002)
+  Bun.serve<{ userId: string }>({
   port: websocketPort,
   async fetch(request, server) {
     const user = await authenticatedUser(request)
@@ -54,5 +57,6 @@ Bun.serve<{ userId: string }>({
       socket.send(JSON.stringify({ type: 'ack', conversationId: payload.conversationId }))
     },
   },
-})
-console.log(`WebSocket running at ws://localhost:${websocketPort}`)
+  })
+  console.log(`WebSocket running at ws://localhost:${websocketPort}`)
+}
