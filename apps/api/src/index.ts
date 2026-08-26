@@ -124,6 +124,31 @@ async function adminUser(request: Request) {
   const user = await authenticatedUser(request)
   return user?.role === 'admin' ? user : null
 }
+async function canViewPost(postId: string, viewerId?: string) {
+  const [post] = await db
+    .select({ authorId: posts.authorId, isPrivate: profiles.isPrivate })
+    .from(posts)
+    .innerJoin(profiles, eq(profiles.userId, posts.authorId))
+    .where(and(eq(posts.id, postId), isNull(posts.deletedAt)))
+  if (!post) return false
+  return canViewAuthor(post.authorId, viewerId, post.isPrivate)
+}
+async function canViewAuthor(authorId: string, viewerId: string | undefined, isPrivate?: boolean) {
+  if (isPrivate === undefined) {
+    const [profile] = await db
+      .select({ isPrivate: profiles.isPrivate })
+      .from(profiles)
+      .where(eq(profiles.userId, authorId))
+    isPrivate = profile?.isPrivate
+  }
+  if (!isPrivate || authorId === viewerId) return true
+  if (!viewerId) return false
+  const [follow] = await db
+    .select()
+    .from(follows)
+    .where(and(eq(follows.followerId, viewerId), eq(follows.followingId, authorId), eq(follows.status, 'accepted')))
+  return Boolean(follow)
+}
 
 export const app = new Elysia()
   .use(cors({ origin: process.env.WEB_URL ?? 'http://localhost:3000', credentials: true }))
@@ -532,7 +557,9 @@ export const app = new Elysia()
             .onConflictDoNothing()
         return { post: { ...post, media } }
       })
-      .get('/posts/:postId', async ({ params }) => {
+      .get('/posts/:postId', async ({ params, request }) => {
+        const viewer = await authenticatedUser(request)
+        if (!(await canViewPost(params.postId, viewer?.id))) return new Response('Post not found', { status: 404 })
         const [post] = await db
           .select()
           .from(posts)
@@ -579,6 +606,7 @@ export const app = new Elysia()
       .post('/posts/:postId/like', async ({ params, request }) => {
         const user = await authenticatedUser(request)
         if (!user) return new Response('Unauthorized', { status: 401 })
+        if (!(await canViewPost(params.postId, user.id))) return new Response('Post not found', { status: 404 })
         const [post] = await db.select({ authorId: posts.authorId }).from(posts).where(eq(posts.id, params.postId))
         await db.insert(likes).values({ userId: user.id, postId: params.postId }).onConflictDoNothing()
         if (post) await notify(post.authorId, user.id, 'like', { postId: params.postId })
@@ -587,12 +615,14 @@ export const app = new Elysia()
       .delete('/posts/:postId/like', async ({ params, request }) => {
         const user = await authenticatedUser(request)
         if (!user) return new Response('Unauthorized', { status: 401 })
+        if (!(await canViewPost(params.postId, user.id))) return new Response('Post not found', { status: 404 })
         await db.delete(likes).where(and(eq(likes.userId, user.id), eq(likes.postId, params.postId)))
         return { liked: false }
       })
       .post('/posts/:postId/comments', async ({ params, body, request }) => {
         const user = await authenticatedUser(request)
         if (!user) return new Response('Unauthorized', { status: 401 })
+        if (!(await canViewPost(params.postId, user.id))) return new Response('Post not found', { status: 404 })
         const input = body as { body?: string; parentId?: string }
         if (!input.body?.trim() || input.body.length > 2_200) return new Response('Invalid comment', { status: 400 })
         const [comment] = await db
@@ -603,21 +633,27 @@ export const app = new Elysia()
         if (post) await notify(post.authorId, user.id, 'comment', { postId: params.postId, commentId: comment.id })
         return { comment }
       })
-      .get('/posts/:postId/comments', async ({ params }) => ({
-        comments: await db
-          .select()
-          .from(comments)
-          .where(and(eq(comments.postId, params.postId), isNull(comments.deletedAt))),
-      }))
+      .get('/posts/:postId/comments', async ({ params, request }) => {
+        if (!(await canViewPost(params.postId, (await authenticatedUser(request))?.id)))
+          return new Response('Post not found', { status: 404 })
+        return {
+          comments: await db
+            .select()
+            .from(comments)
+            .where(and(eq(comments.postId, params.postId), isNull(comments.deletedAt))),
+        }
+      })
       .post('/posts/:postId/save', async ({ params, request }) => {
         const user = await authenticatedUser(request)
         if (!user) return new Response('Unauthorized', { status: 401 })
+        if (!(await canViewPost(params.postId, user.id))) return new Response('Post not found', { status: 404 })
         await db.insert(savedPosts).values({ userId: user.id, postId: params.postId }).onConflictDoNothing()
         return { saved: true }
       })
       .delete('/posts/:postId/save', async ({ params, request }) => {
         const user = await authenticatedUser(request)
         if (!user) return new Response('Unauthorized', { status: 401 })
+        if (!(await canViewPost(params.postId, user.id))) return new Response('Post not found', { status: 404 })
         await db.delete(savedPosts).where(and(eq(savedPosts.userId, user.id), eq(savedPosts.postId, params.postId)))
         return { saved: false }
       })
@@ -639,6 +675,24 @@ export const app = new Elysia()
         )!,
       )
     if (viewer) {
+      conditions.push(
+        or(
+          eq(profiles.isPrivate, false),
+          eq(posts.authorId, viewer.id),
+          exists(
+            db
+              .select()
+              .from(follows)
+              .where(
+                and(
+                  eq(follows.followerId, viewer.id),
+                  eq(follows.followingId, posts.authorId),
+                  eq(follows.status, 'accepted'),
+                ),
+              ),
+          ),
+        )!,
+      )
       conditions.push(
         notExists(
           db
@@ -677,25 +731,31 @@ export const app = new Elysia()
               ),
           ),
         )
-    } else if (query.following === 'true') return new Response('Unauthorized', { status: 401 })
-    const rows = await db
-      .select({ post: posts, media: postMedia })
+    } else {
+      conditions.push(eq(profiles.isPrivate, false))
+      if (query.following === 'true') return new Response('Unauthorized', { status: 401 })
+    }
+    const pagePosts = await db
+      .select({ post: posts })
       .from(posts)
-      .leftJoin(postMedia, eq(postMedia.postId, posts.id))
+      .innerJoin(profiles, eq(profiles.userId, posts.authorId))
       .where(and(...conditions))
       .orderBy(desc(posts.createdAt), desc(posts.id))
       .limit(limit + 1)
-    const hasMore = rows.length > limit
-    const visibleRows = rows.slice(0, limit)
-    const grouped = visibleRows.reduce<
-      Record<string, { post: (typeof visibleRows)[number]['post']; media: (typeof visibleRows)[number]['media'][] }>
-    >((result, row) => {
-      const current = result[row.post.id] ?? { post: row.post, media: [] }
-      if (row.media) current.media.push(row.media)
-      result[row.post.id] = current
-      return result
-    }, {})
-    const items = Object.values(grouped)
+    const hasMore = pagePosts.length > limit
+    const visiblePosts = pagePosts.slice(0, limit).map(({ post }) => post)
+    const mediaRows = visiblePosts.length
+      ? await db
+          .select()
+          .from(postMedia)
+          .where(
+            inArray(
+              postMedia.postId,
+              visiblePosts.map((post) => post.id),
+            ),
+          )
+      : []
+    const items = visiblePosts.map((post) => ({ post, media: mediaRows.filter((media) => media.postId === post.id) }))
     const last = items.at(-1)
     return {
       items,
@@ -810,16 +870,20 @@ export const app = new Elysia()
       .from(stories)
       .where(gt(stories.expiresAt, new Date()))
       .orderBy(desc(stories.createdAt))
-    return { stories: activeStories }
+    const visibleStories = []
+    for (const story of activeStories) if (await canViewAuthor(story.authorId, user.id)) visibleStories.push(story)
+    return { stories: visibleStories }
   })
   .post('/api/v1/stories/:storyId/view', async ({ params, request }) => {
     const user = await authenticatedUser(request)
     if (!user) return new Response('Unauthorized', { status: 401 })
     const [story] = await db
-      .select({ id: stories.id })
+      .select({ id: stories.id, authorId: stories.authorId })
       .from(stories)
       .where(and(eq(stories.id, params.storyId), gt(stories.expiresAt, new Date())))
     if (!story) return new Response('Story not found or expired', { status: 404 })
+    if (!(await canViewAuthor(story.authorId, user.id)))
+      return new Response('Story not found or expired', { status: 404 })
     await db.insert(storyViews).values({ storyId: story.id, viewerId: user.id }).onConflictDoNothing()
     return { viewed: true }
   })
