@@ -37,6 +37,8 @@ const attempts = new Map<string, { count: number; resetAt: number }>()
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 const cookieName = 'social_session'
 const secureCookies = process.env.NODE_ENV === 'production'
+const webOrigin =
+  process.env.WEB_URL ?? (process.env.NODE_ENV === 'production' ? 'https://social-web-delta.vercel.app' : 'http://localhost:3000')
 const vapidPublicKey = process.env.VAPID_PUBLIC_KEY
 const vapidPrivateKey = process.env.VAPID_PRIVATE_KEY
 const requestStartedAt = new WeakMap<Request, number>()
@@ -173,7 +175,7 @@ async function canViewAuthor(authorId: string, viewerId: string | undefined, isP
 }
 
 export const baseApp = new Elysia()
-  .use(cors({ origin: process.env.WEB_URL ?? 'http://localhost:3000', credentials: true }))
+  .use(cors({ origin: webOrigin, credentials: true }))
   .onRequest(({ request, set }) => {
     requestStartedAt.set(request, performance.now())
     set.headers['x-request-id'] = request.headers.get('x-request-id') ?? crypto.randomUUID()
