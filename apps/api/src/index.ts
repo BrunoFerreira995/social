@@ -1,6 +1,7 @@
 import cors from '@elysiajs/cors'
 import { Elysia, t } from 'elysia'
 import { createHash, randomBytes } from 'node:crypto'
+import { hashPassword, verifyPassword } from './password'
 import webpush from 'web-push'
 import { and, asc, count, desc, eq, exists, gt, ilike, inArray, isNull, lt, notExists, or } from 'drizzle-orm'
 import { connectRedis, db } from '@social/database'
@@ -265,7 +266,7 @@ export const baseApp = new Elysia()
           if (!emailPattern.test(input.email) || input.password.length < 8 || input.password.length > 128)
             return new Response('Invalid credentials', { status: 400 })
           const email = input.email.trim().toLowerCase()
-          const passwordHash = await Bun.password.hash(input.password, { algorithm: 'argon2id' })
+          const passwordHash = await hashPassword(input.password)
           try {
             const result = await db.transaction(async (tx) => {
               const [user] = await tx
@@ -311,7 +312,7 @@ export const baseApp = new Elysia()
             .select()
             .from(users)
             .where(and(eq(users.email, input.email.trim().toLowerCase()), isNull(users.deletedAt)))
-          if (!user?.passwordHash || !(await Bun.password.verify(input.password, user.passwordHash)))
+          if (!user?.passwordHash || !(await verifyPassword(input.password, user.passwordHash)))
             return new Response('Invalid credentials', { status: 401 })
           await createSession(user.id, set)
           return { user: { id: user.id, email: user.email } }
@@ -397,7 +398,7 @@ export const baseApp = new Elysia()
           await db
             .update(users)
             .set({
-              passwordHash: await Bun.password.hash(input.password, { algorithm: 'argon2id' }),
+              passwordHash: await hashPassword(input.password),
               updatedAt: new Date(),
             })
             .where(eq(users.id, entry.userId))

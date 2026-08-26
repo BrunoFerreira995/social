@@ -1,5 +1,5 @@
 import { Elysia } from 'elysia'
-import { mkdir } from 'node:fs/promises'
+import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { randomBytes } from 'node:crypto'
 import sharp from 'sharp'
@@ -54,10 +54,14 @@ export function createUploadRoutes(deps: UploadDependencies) {
   return new Elysia()
     .get(
       '/uploads/:filename',
-      ({ params, request }) => {
+      async ({ params, request }) => {
         if (!/^[a-zA-Z0-9_.-]+$/.test(params.filename)) return uploadError(request, 400)
-        const file = Bun.file(join(deps.mediaDirectory, params.filename))
-        return file.size ? new Response(file) : uploadError(request, 404)
+        try {
+          const contents = await readFile(join(deps.mediaDirectory, params.filename))
+          return new Response(contents)
+        } catch {
+          return uploadError(request, 404)
+        }
       },
       { params: uploadParams },
     )
@@ -110,7 +114,7 @@ export function createUploadRoutes(deps: UploadDependencies) {
         const destination = join(deps.mediaDirectory, validation.kind === 'image' ? `${id}.webp` : `${id}.bin`)
         const buffer = await file.arrayBuffer()
         if (validation.kind === 'image') await sharp(buffer).rotate().webp({ quality: 85 }).toFile(destination)
-        else await Bun.write(destination, buffer)
+        else await writeFile(destination, Buffer.from(buffer))
         return {
           url: `${deps.mediaBaseUrl}/${destination.split('/').pop()}`,
           mimeType: validation.kind === 'image' ? 'image/webp' : file.type,
