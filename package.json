@@ -1,0 +1,48 @@
+{
+  "name": "social-platform",
+  "private": true,
+  "version": "0.1.0",
+  "packageManager": "bun@1.2.20",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "prepare": "husky",
+    "dev": "bun --filter '@social/web' dev & bun --filter '@social/api' dev",
+    "dev:web": "bun --filter '@social/web' dev",
+    "dev:api": "bun --filter '@social/api' dev",
+    "build": "bun run build:web && bun run build:api",
+    "build:web": "bun --filter '@social/web' build",
+    "build:api": "bun --filter '@social/api' build",
+    "lint": "bun --filter '*' lint",
+    "lint:eslint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test:e2e": "playwright test",
+    "screenshots": "bun run scripts/capture-flow.ts",
+    "test:load": "bun run tests/feed-load.ts",
+    "test": "bun test apps/api/src/api.test.ts apps/api/src/upload-validation.test.ts",
+    "db:up": "docker compose up -d postgres redis",
+    "db:migrate": "bun --cwd packages/database db:migrate",
+    "db:seed": "bun --cwd packages/database db:seed",
+    "db:seed:institutional": "bun --cwd packages/database db:seed:institutional",
+    "media:worker": "bun --cwd packages/database media:worker",
+    "db:down": "docker compose down",
+    "db:logs": "docker compose logs -f postgres"
+  },
+  "devDependencies": {
+    "@eslint/js": "latest",
+    "eslint": "latest",
+    "husky": "latest",
+    "lint-staged": "latest",
+    "prettier": "latest",
+    "typescript-eslint": "latest",
+    "typescript": "5.9.3",
+    "@playwright/test": "latest"
+  },
+  "lint-staged": {
+    "**/*.{js,mjs,cjs,ts,tsx,json,css,md,yml,yaml}": "prettier --write",
+    "**/*.{ts,tsx,js,mjs,cjs}": "eslint --fix"
+  }
+}

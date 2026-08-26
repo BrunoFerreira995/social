@@ -1,0 +1,27 @@
+{
+  "name": "@social/api",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "bun --watch src/index.ts",
+    "build": "bun build src/index.ts --outdir dist --target bun",
+    "lint": "tsc --noEmit",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "@elysiajs/cors": "latest",
+    "elysia": "latest",
+    "@social/database": "workspace:*",
+    "drizzle-orm": "latest",
+    "sharp": "latest",
+    "@aws-sdk/client-s3": "latest",
+    "@aws-sdk/s3-request-presigner": "latest",
+    "web-push": "latest"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "@types/web-push": "latest",
+    "typescript": "5.9.3"
+  }
+}

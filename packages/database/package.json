@@ -1,0 +1,31 @@
+{
+  "name": "@social/database",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./schema": "./src/schema.ts"
+  },
+  "scripts": {
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate",
+    "db:seed": "bun run src/seed.ts",
+    "db:seed:institutional": "bun run src/seed-institutional.ts",
+    "media:worker": "bun run src/media-worker.ts",
+    "lint": "tsc --noEmit",
+    "test": "echo 'No database tests yet'"
+  },
+  "dependencies": {
+    "drizzle-orm": "latest",
+    "postgres": "latest",
+    "redis": "latest",
+    "web-push": "latest",
+    "sharp": "latest"
+  },
+  "devDependencies": {
+    "@types/node": "latest",
+    "drizzle-kit": "latest",
+    "typescript": "5.9.3"
+  }
+}
