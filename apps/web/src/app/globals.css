@@ -168,6 +168,50 @@ h1 {
   gap: 12px;
   margin-top: 32px;
 }
+.auth-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: #0008;
+}
+.auth-card {
+  position: relative;
+  width: min(100%, 420px);
+  padding: 32px;
+  border-radius: 20px;
+  background: var(--paper);
+  color: var(--ink);
+  box-shadow: 0 20px 60px #0003;
+}
+.auth-card h2 {
+  margin: 0 0 8px;
+  font-size: 1.8rem;
+}
+.auth-description,
+.auth-hint {
+  color: var(--muted);
+}
+.auth-card form {
+  display: grid;
+  gap: 9px;
+  margin-top: 24px;
+}
+.auth-card input {
+  width: 100%;
+  border: 1px solid #d5d2cc;
+  border-radius: 10px;
+  padding: 12px;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+}
+.auth-hint {
+  margin: 0;
+  font-size: 0.85rem;
+}
 button {
   border: 0;
   border-radius: 999px;
