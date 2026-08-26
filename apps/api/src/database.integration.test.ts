@@ -1,7 +1,9 @@
 import { describe, expect, test } from 'bun:test'
+import { createHash } from 'node:crypto'
 import { eq } from 'drizzle-orm'
 import { db, sql } from '@social/database'
-import { comments, postMedia, posts, profiles, reports, users } from '@social/database/schema'
+import { comments, postMedia, posts, profiles, reports, sessions, users } from '@social/database/schema'
+import { app } from './app'
 
 const enabled = Boolean(process.env.DATABASE_URL)
 
@@ -74,6 +76,56 @@ describe.skipIf(!enabled)('PostgreSQL transaction integration', () => {
       await db
         .insert(postMedia)
         .values({ postId: post.id, url: 'https://cdn.test/image.webp', mimeType: 'image/webp', width: 100 })
+    } finally {
+      await db.delete(users).where(eq(users.id, author.id))
+    }
+  })
+
+  test('paginates the real feed route without nesting carousel media', async () => {
+    const token = `feed-${crypto.randomUUID()}`
+    const [author] = await db
+      .insert(users)
+      .values({ email: `${token}@test.local` })
+      .returning({ id: users.id })
+    await db
+      .insert(profiles)
+      .values({ userId: author.id, username: `feed_${author.id.slice(0, 8)}`, displayName: 'Feed' })
+    const [first] = await db.insert(posts).values({ authorId: author.id }).returning({ id: posts.id })
+    await db.insert(postMedia).values([
+      { postId: first.id, url: 'https://cdn.test/one.webp', mimeType: 'image/webp', position: 0 },
+      { postId: first.id, url: 'https://cdn.test/two.webp', mimeType: 'image/webp', position: 1 },
+    ])
+    const [second] = await db
+      .insert(posts)
+      .values({ authorId: author.id, createdAt: new Date(Date.now() - 60_000) })
+      .returning({ id: posts.id })
+    await db
+      .insert(sessions)
+      .values({
+        userId: author.id,
+        tokenHash: createHash('sha256').update(token).digest('hex'),
+        expiresAt: new Date(Date.now() + 60_000),
+      })
+    try {
+      const firstResponse = await app.handle(
+        new Request('http://localhost/api/v1/feed?limit=1', { headers: { cookie: `social_session=${token}` } }),
+      )
+      expect(firstResponse.status).toBe(200)
+      const firstBody = await firstResponse.json()
+      const carousel = firstBody.items.find((item: { post: { id: string } }) => item.post.id === first.id)
+      expect(carousel.media).toEqual([
+        expect.objectContaining({ mimeType: 'image/webp' }),
+        expect.objectContaining({ mimeType: 'image/webp' }),
+      ])
+      expect(firstBody.nextCursor).toBeTruthy()
+      const secondResponse = await app.handle(
+        new Request(`http://localhost/api/v1/feed?limit=1&cursor=${firstBody.nextCursor}`, {
+          headers: { cookie: `social_session=${token}` },
+        }),
+      )
+      const secondBody = await secondResponse.json()
+      expect(secondBody.items).toHaveLength(1)
+      expect(secondBody.items[0].post.id).toBe(second.id)
     } finally {
       await db.delete(users).where(eq(users.id, author.id))
     }
