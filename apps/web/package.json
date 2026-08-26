@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "next": "latest",
+    "@vercel/analytics": "latest",
     "react": "latest",
     "react-dom": "latest"
   },

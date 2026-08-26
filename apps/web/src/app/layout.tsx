@@ -1,4 +1,5 @@
 import type { Metadata } from 'next'
+import { Analytics } from '@vercel/analytics/next'
 import './globals.css'
 import { AppShell } from '../components/app-shell'
 
@@ -12,6 +13,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
     <html lang="pt-BR" data-theme="light">
       <body>
         <AppShell>{children}</AppShell>
+        <Analytics />
       </body>
     </html>
   )
